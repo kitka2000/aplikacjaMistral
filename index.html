@@ -67,6 +67,24 @@
   .slider-row span { min-width: 150px; color: var(--muted); font-size: 0.9rem; }
   input[type="range"] { flex: 1; accent-color: var(--accent); }
   .slider-value { font-weight: 600; color: var(--text); min-width: 24px; text-align: right; }
+  .config-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .config-field { display: flex; flex-direction: column; gap: 6px; }
+  select {
+    padding: 10px 12px;
+    font-size: 0.95rem;
+    font-family: inherit;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--card);
+    color: var(--text);
+    outline: none;
+    cursor: pointer;
+  }
+  select:focus { border-color: var(--accent); }
   button {
     padding: 14px 20px;
     font-size: 1rem;
@@ -100,6 +118,25 @@
     <h1>Social AI Creator</h1>
 
     <div class="card">
+      <div class="config-row">
+        <div class="config-field">
+          <label for="platform">Platforma</label>
+          <select id="platform">
+            <option value="linkedin">LinkedIn</option>
+            <option value="twitter">Twitter/X</option>
+            <option value="instagram">Instagram</option>
+          </select>
+        </div>
+        <div class="config-field">
+          <label for="tone">Ton wypowiedzi</label>
+          <select id="tone">
+            <option value="ekspercki">Ekspercki</option>
+            <option value="luzny">Luźny</option>
+            <option value="sprzedazowy">Sprzedażowy</option>
+          </select>
+        </div>
+      </div>
+
       <label for="topic">O czym chcesz napisać?</label>
       <textarea id="topic" placeholder="np. Nowa kolekcja butów do biegania, promocja w kawiarni, premiera aplikacji..."></textarea>
 
@@ -117,6 +154,8 @@
 
   <script>
     const topicInput = document.getElementById('topic');
+    const platformInput = document.getElementById('platform');
+    const toneInput = document.getElementById('tone');
     const lengthInput = document.getElementById('length');
     const lengthValue = document.getElementById('lengthValue');
     const generateBtn = document.getElementById('generateBtn');
@@ -146,17 +185,49 @@
     // Jeśli ustawisz np. API OpenAI/Mistral przez własne proxy, aplikacja z niego skorzysta.
     const LLM_ENDPOINT = window.LLM_ENDPOINT || null;
 
-    async function callLLM(topic, sentenceCount) {
+    const PLATFORM_RULES = {
+      twitter: {
+        name: 'Twitter/X',
+        prompt: 'Post MUSI być krótki i dynamiczny — maksymalnie 280 znaków, maksymalnie 3 krótkie zdania, tempo i energia.'
+      },
+      linkedin: {
+        name: 'LinkedIn',
+        prompt: 'Post ma być dłuższy, podzielony na akapity (oddzielone podwójnym znakiem nowej linii), profesjonalny i merytoryczny.'
+      },
+      instagram: {
+        name: 'Instagram',
+        prompt: 'Post ma być wizualny i lekki, z emoji i hashtagami na końcu.'
+      }
+    };
+
+    const TONE_RULES = {
+      ekspercki: {
+        name: 'ekspercki',
+        prompt: 'Użyj profesjonalnego, merytorycznego słownictwa — precyzyjne pojęcia, konkrety, bez kolokwializmów.'
+      },
+      luzny: {
+        name: 'luźny',
+        prompt: 'Użyj luźnego, potocznego słownictwa i lekkiego slangu — jak rozmowa ze znajomym.'
+      },
+      sprzedazowy: {
+        name: 'sprzedażowy',
+        prompt: 'Użyj języka korporacyjno-sprzedażowego — korzyści, oferta, wezwanie do działania (CTA).'
+      }
+    };
+
+    async function callLLM(topic, sentenceCount, platform, tone) {
       const prompt =
-        'Napisz krótki, angażujący wpis marketingowy na media społecznościowe na temat: "' +
-        topic + '". Wpis ma mieć dokładnie ' + sentenceCount +
-        ' zdań. Ton: żywy, przystępny, z emoji tam gdzie pasuje. Zwróć tylko sam wpis.';
+        'Napisz angażujący wpis marketingowy na media społecznościowe na temat: "' +
+        topic + '". Wpis ma mieć mniej więcej ' + sentenceCount + ' zdań. ' +
+        'Platforma: ' + PLATFORM_RULES[platform].name + '. ' + PLATFORM_RULES[platform].prompt + ' ' +
+        'Ton: ' + TONE_RULES[tone].name + '. ' + TONE_RULES[tone].prompt +
+        ' Zwróć tylko sam wpis.';
 
       if (LLM_ENDPOINT) {
         const response = await fetch(LLM_ENDPOINT, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt, topic, sentences: sentenceCount })
+          body: JSON.stringify({ prompt, topic, sentences: sentenceCount, platform, tone })
         });
         if (!response.ok) throw new Error('Model zwrócił błąd: ' + response.status);
         const data = await response.json();
@@ -165,40 +236,58 @@
 
       // Tryb offline: lokalny generator zastępczy (gdy brak endpointu).
       await new Promise(r => setTimeout(r, 900 + Math.random() * 700));
-      return generateLocalPost(topic, sentenceCount);
+      return generateLocalPost(topic, sentenceCount, platform, tone);
     }
 
-    function generateLocalPost(topic, sentenceCount) {
+    function generateLocalPost(topic, sentenceCount, platform, tone) {
       const t = topic.trim().replace(/[.!?]+$/, '');
-      const hooks = [
-        'Masz już swoje plany na ' + t + '? 🤔',
-        'Czas na coś świeżego: ' + t + '! ✨',
-        'Uwaga, to może Cię zainteresować: ' + t + '. 👀',
-        'Wyobraź sobie ' + t + ' — brzmi dobrze, prawda? 😉'
-      ];
-      const bodies = [
-        'To coś, co naprawdę warto znać.',
-        'Sprawdziliśmy to z kilkoma osobami i opinie są jednoznaczne.',
-        'Coraz więcej osób szuka właśnie takiego rozwiązania.',
-        'Prosto, wygodnie i bez zbędnych formalności.'
-      ];
-      const ctas = [
-        'Sprawdź szczegóły i daj znać, co myślisz! 👇',
-        'Oznacz osobę, która powinna to zobaczyć! 🏷️',
-        'Zapisz ten post, żeby nie zapomnieć. 🔖',
-        'Napisz w komentarzu, jak Ty to widzisz! 💬'
-      ];
-      const endings = [
-        'Nie przegap okazji.',
-        'Do zobaczenia w kolejnych postach!',
-        'A Ty co o tym sądzisz?',
-        'Więcej informacji już wkrótce.'
-      ];
-
       const pick = arr => arr[Math.floor(Math.random() * arr.length)];
-      const sentences = [pick(hooks), pick(bodies), pick(ctas)];
-      while (sentences.length < sentenceCount) sentences.push(pick(endings));
-      return sentences.slice(0, sentenceCount).join(' ');
+
+      const vocab = {
+        ekspercki: {
+          hook: ['Kluczowa obserwacja na temat: ' + t + '.', 'Rynek coraz wyraźniej pokazuje jedną rzecz: ' + t + ' ma znaczenie.', 'Analizując ostatnie trendy, nie sposób pominąć ' + t + '.'],
+          body: ['To zagadnienie bezpośrednio przekłada się na wymierne rezultaty.', 'Z perspektywy strategii to element, którego nie należy bagatelizować.', 'Dane i praktyka rynkowa wskazują na ten sam wniosek.'],
+          cta: ['Zapraszam do dyskusji w komentarzach.', 'Chętnie poznam Wasze merytoryczne uwagi.', 'Szczegóły chętnie omówię w wiadomości prywatnej.'],
+          ending: ['Warto śledzić ten temat.', 'To kierunek, który będzie zyskiwał na znaczeniu.', 'Rekomenduję wzięcie go pod uwagę w planach.']
+        },
+        luzny: {
+          hook: ['Okay, muszę Wam o czymś powiedzieć: ' + t + '! 🙌', 'Szczerze? ' + t.charAt(0).toUpperCase() + t.slice(1) + ' to totalna rewelacja. 😎', 'Zgadnijcie, co dziś wchodzi na tapetę — ' + t + '! 🔥'],
+          body: ['Brzmi banalnie, ale działa jak trzeba.', 'Bez ściemy — to po prostu spoko sprawa.', 'Serio, nie trzeba być ekspertem, żeby to docenić.'],
+          cta: ['Dajcie znać w komentarzach, co o tym myślicie! 👇', 'Oznacz kogoś, kto musi to zobaczyć! 🏷️', 'Zapiszcie post na później, niech Wam nie ucieknie! 🔖'],
+          ending: ['Góra z Was! 💪', 'Do usłyszenia w kolejnych postach!', 'No i tyle w temacie, pa! 👋']
+        },
+        sprzedazowy: {
+          hook: ['Nowa oferta, o której musisz wiedzieć: ' + t + '!', 'Prezentujemy rozwiązanie, które zmienia zasady gry: ' + t + '.', 'Skorzystaj z unikalnej możliwości związanej z ' + t + '.'],
+          body: ['Nasi klienci już odczuwają realne korzyści.', 'Gwarantujemy najwyższą jakość i pełne wsparcie.', 'Oferta ograniczona czasowo — wartość mówimy sami za siebie.'],
+          cta: ['Skontaktuj się już dziś i odbierz ofertę!', 'Zamów teraz i przekonaj się, ile możesz zyskać!', 'Napisz do nas — przygotujemy ofertę dopasowaną do Ciebie.'],
+          ending: ['Nie przegap tej okazji!', 'Twoja przewaga konkurencyjna zaczyna się tutaj.', 'Liczba miejsc ograniczona.']
+        }
+      };
+
+      const v = vocab[tone];
+      let sentences = [pick(v.hook), pick(v.body), pick(v.cta)];
+      while (sentences.length < sentenceCount) sentences.push(pick(v.ending));
+
+      if (platform === 'twitter') {
+        let post = sentences.slice(0, 3).join(' ');
+        while (post.length > 280 && sentences.length > 1) {
+          sentences.pop();
+          post = sentences.join(' ');
+        }
+        return post.length > 280 ? post.slice(0, 277) + '...' : post;
+      }
+
+      if (platform === 'linkedin') {
+        const paragraphs = [];
+        const perParagraph = Math.max(1, Math.ceil(sentenceCount / 3));
+        for (let i = 0; i < sentences.length; i += perParagraph) {
+          paragraphs.push(sentences.slice(i, i + perParagraph).join(' '));
+        }
+        return paragraphs.join('\n\n');
+      }
+
+      const tags = ['#' + t.split(/\s+/)[0].toLowerCase() + ' #' + (platform === 'instagram' ? 'instagram' : 'social')];
+      return sentences.join(' ') + '\n\n' + tags.join(' ');
     }
 
     generateBtn.addEventListener('click', async () => {
@@ -213,7 +302,12 @@
       resultBox.textContent = 'Tworzę Twój post...';
       setLoading(true);
       try {
-        const post = await callLLM(topic, parseInt(lengthInput.value, 10));
+        const post = await callLLM(
+          topic,
+          parseInt(lengthInput.value, 10),
+          platformInput.value,
+          toneInput.value
+        );
         showResult(post);
       } catch (err) {
         showError('Nie udało się wygenerować posta. Spróbuj ponownie. (' + err.message + ')');
