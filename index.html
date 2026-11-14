@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Social AI Creator</title>
+<style>
+  :root {
+    --bg: #f7f7fb;
+    --card: #ffffff;
+    --text: #1f2430;
+    --muted: #6b7280;
+    --accent: #4f46e5;
+    --accent-hover: #4338ca;
+    --border: #e5e7eb;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 48px 16px;
+  }
+  .app {
+    width: 100%;
+    max-width: 640px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  h1 {
+    font-size: 1.6rem;
+    letter-spacing: -0.02em;
+    text-align: center;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  label { font-weight: 600; font-size: 0.95rem; }
+  textarea {
+    width: 100%;
+    min-height: 140px;
+    resize: vertical;
+    padding: 14px;
+    font-size: 1rem;
+    font-family: inherit;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    outline: none;
+  }
+  textarea:focus { border-color: var(--accent); }
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .slider-row span { min-width: 150px; color: var(--muted); font-size: 0.9rem; }
+  input[type="range"] { flex: 1; accent-color: var(--accent); }
+  .slider-value { font-weight: 600; color: var(--text); min-width: 24px; text-align: right; }
+  button {
+    padding: 14px 20px;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #fff;
+    background: var(--accent);
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  button:hover:not(:disabled) { background: var(--accent-hover); }
+  button:disabled { opacity: 0.6; cursor: wait; }
+  #result {
+    min-height: 160px;
+    white-space: pre-wrap;
+    padding: 20px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    background: var(--card);
+    color: var(--text);
+    font-size: 1rem;
+    line-height: 1.6;
+  }
+  #result.empty { color: var(--muted); font-style: italic; }
+  .error { color: #b91c1c; font-style: normal; }
+</style>
+</head>
+<body>
+  <main class="app">
+    <h1>Social AI Creator</h1>
+
+    <div class="card">
+      <label for="topic">O czym chcesz napisać?</label>
+      <textarea id="topic" placeholder="np. Nowa kolekcja butów do biegania, promocja w kawiarni, premiera aplikacji..."></textarea>
+
+      <div class="slider-row">
+        <span>Liczba zdań:</span>
+        <input type="range" id="length" min="1" max="10" value="4" step="1">
+        <span class="slider-value" id="lengthValue">4</span>
+      </div>
+
+      <button id="generateBtn">Generuj Post</button>
+    </div>
+
+    <div id="result" class="empty">Twój wygenerowany post pojawi się tutaj...</div>
+  </main>
+
+  <script>
+    const topicInput = document.getElementById('topic');
+    const lengthInput = document.getElementById('length');
+    const lengthValue = document.getElementById('lengthValue');
+    const generateBtn = document.getElementById('generateBtn');
+    const resultBox = document.getElementById('result');
+
+    lengthInput.addEventListener('input', () => {
+      lengthValue.textContent = lengthInput.value;
+    });
+
+    function setLoading(loading) {
+      generateBtn.disabled = loading;
+      generateBtn.textContent = loading ? 'Tworzę...' : 'Generuj Post';
+    }
+
+    function showResult(text) {
+      resultBox.textContent = text;
+      resultBox.classList.remove('empty');
+    }
+
+    function showError(message) {
+      resultBox.textContent = message;
+      resultBox.classList.remove('empty');
+      resultBox.classList.add('error');
+    }
+
+    // Konfiguracja endpointu modelu językowego (opcjonalna).
+    // Jeśli ustawisz np. API OpenAI/Mistral przez własne proxy, aplikacja z niego skorzysta.
+    const LLM_ENDPOINT = window.LLM_ENDPOINT || null;
+
+    async function callLLM(topic, sentenceCount) {
+      const prompt =
+        'Napisz krótki, angażujący wpis marketingowy na media społecznościowe na temat: "' +
+        topic + '". Wpis ma mieć dokładnie ' + sentenceCount +
+        ' zdań. Ton: żywy, przystępny, z emoji tam gdzie pasuje. Zwróć tylko sam wpis.';
+
+      if (LLM_ENDPOINT) {
+        const response = await fetch(LLM_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt, topic, sentences: sentenceCount })
+        });
+        if (!response.ok) throw new Error('Model zwrócił błąd: ' + response.status);
+        const data = await response.json();
+        return data.post || data.text || String(data);
+      }
+
+      // Tryb offline: lokalny generator zastępczy (gdy brak endpointu).
+      await new Promise(r => setTimeout(r, 900 + Math.random() * 700));
+      return generateLocalPost(topic, sentenceCount);
+    }
+
+    function generateLocalPost(topic, sentenceCount) {
+      const t = topic.trim().replace(/[.!?]+$/, '');
+      const hooks = [
+        'Masz już swoje plany na ' + t + '? 🤔',
+        'Czas na coś świeżego: ' + t + '! ✨',
+        'Uwaga, to może Cię zainteresować: ' + t + '. 👀',
+        'Wyobraź sobie ' + t + ' — brzmi dobrze, prawda? 😉'
+      ];
+      const bodies = [
+        'To coś, co naprawdę warto znać.',
+        'Sprawdziliśmy to z kilkoma osobami i opinie są jednoznaczne.',
+        'Coraz więcej osób szuka właśnie takiego rozwiązania.',
+        'Prosto, wygodnie i bez zbędnych formalności.'
+      ];
+      const ctas = [
+        'Sprawdź szczegóły i daj znać, co myślisz! 👇',
+        'Oznacz osobę, która powinna to zobaczyć! 🏷️',
+        'Zapisz ten post, żeby nie zapomnieć. 🔖',
+        'Napisz w komentarzu, jak Ty to widzisz! 💬'
+      ];
+      const endings = [
+        'Nie przegap okazji.',
+        'Do zobaczenia w kolejnych postach!',
+        'A Ty co o tym sądzisz?',
+        'Więcej informacji już wkrótce.'
+      ];
+
+      const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+      const sentences = [pick(hooks), pick(bodies), pick(ctas)];
+      while (sentences.length < sentenceCount) sentences.push(pick(endings));
+      return sentences.slice(0, sentenceCount).join(' ');
+    }
+
+    generateBtn.addEventListener('click', async () => {
+      const topic = topicInput.value.trim();
+      if (!topic) {
+        showError('Najpierw wpisz temat, o którym chcesz napisać. ✍️');
+        topicInput.focus();
+        return;
+      }
+      resultBox.classList.remove('error');
+      resultBox.classList.add('empty');
+      resultBox.textContent = 'Tworzę Twój post...';
+      setLoading(true);
+      try {
+        const post = await callLLM(topic, parseInt(lengthInput.value, 10));
+        showResult(post);
+      } catch (err) {
+        showError('Nie udało się wygenerować posta. Spróbuj ponownie. (' + err.message + ')');
+      } finally {
+        setLoading(false);
+      }
+    });
+  </script>
+</body>
+</html>
